@@ -1,0 +1,286 @@
+# Kitphonic 1.0.0-rc10 — release candidate
+
+Version: `1.0.0-rc10` (`VERSION`, `js/version.js`, shown in the grown-ups footer). Local-only static web app (vanilla ES
+modules, no network calls, progress in `localStorage`). This candidate adds the Android system-bar safe rectangle below.
+It does not claim an emulator or phone pass. Packaging and signing stay with the existing Release Engineer stream.
+
+**rc10 web gate (not Android inset acceptance):** source snapshot `1be94192570530cc5b14466012bc1a5276cd5d8e` (`VERSION.txt`; the tested functional tree, not this evidence commit and not a deployment). `npm test` (208) includes `tests/safe-insets.test.mjs`. `tools/safe-insets-layout.py` loads the page in desktop Chrome with synthetic CSS insets and checks hello, the map, the word slider, and tracing in portrait and short landscape. Those runs do not record an Android API level or a WebView package version, and they do not prove gesture navigation, three-button navigation, a cutout, cold start, or resume.
+
+The stage reads `--safe-area-inset-*` when Capacitor 8.6.0 SystemBars sets them, including an explicit `0px`. It does not add `env(safe-area-inset-*)` on top of those variables. On Android Chrome/WebView older than 140, unset variables also add nothing: that library pads the window itself and publishes `0px`, and `env()` is the broken value the library refuses to trust. WebView 140 and later, and iOS, use the published insets or `env()` once, and the stage is fitted to that smaller viewport. The page background outside the stage can stay at the screen edge. No native file in the rc9 wrapper archive is changed by this candidate.
+
+**Packaging handoff, not done here.** Overlay this web tree on the verified scratch native tree. Archive `kitphonic-rc9-native-wrapper-sanitized.zip`, 345938 bytes, SHA-256 `52d762581e9a0c410891a6bcaa03b5f89d79e4f13837b5fdba91b5dec0fd5cc3`, 66 files, each matching `kitphonic-rc9-native-wrapper-sha256.json`. Declared dependency `@capacitor/android` 8.6.0 integrity `sha512-6IJS0TCfV/F/8+324CCwYd3xL6r+TH0W7zzaxYzPz9IV3YWCNvsZDuCCPHUIBC5iASb9od827ddSJ6rz+9Pu1Q==` (the tarball bytes match that lock hash). Leave `SystemBars.insetsHandling` unset (`css`). Do not add `fitsSystemWindows`, a fixed status/navigation padding, or a second WebView inset. Keep `viewport-fit=cover`. Web `VERSION` is `1.0.0-rc10`; native `versionName` / `versionCode` stay with the packager. The previous signed APK `0991edd91c795b7dfa3771a51c801cd9eda45ca630ddc7cc2b024d58caa43663` bundled web `b2f8b749` and does not contain this fix or the welcome-bubble wrap on `6986b966`.
+
+On the packaged build, record API level and the active WebView package version together. Measure portrait and landscape, rotate back, gesture and three-button navigation, and a cutout if the image has one, at cold start and after resume. Compare WindowInsets (status, navigation, cutout, IME) with the WebView's on-screen bounds and with `innerWidth` / `innerHeight`, `visualViewport`, and both `--safe-area-inset-*` and `env(safe-area-inset-*)`. Pass when the bars stay visible and the hello Play button, top home/replay controls, blend slider, map Go button, and tracing card sit inside the safe bounds, with no second gap equal to the bar size. Below WebView 140 the CSS variables should be `0px` and the WebView bounds should already sit inside the bars. At 140 and above the variables should match the bars and cutout, and the WebView may be full-bleed. There is no child text field; if an IME is shown, `--safe-area-inset-bottom` should be `0px` while the WebView height shrinks, and the stage should not shrink again. Do not uninstall an owner install or bypass its signature.
+
+## Previous rc9 readiness
+
+Version: `1.0.0-rc9` (`VERSION`, `js/version.js`, shown in the grown-ups footer). Local-only static web app (vanilla ES
+modules, no network calls, progress in `localStorage`). Spec: *Phonics Reader App — Combined Spec v1.0*, §3.
+Reviews folded in: literacy review v1 (R1–R11) and v2 (V1–V10), Uiux r1–r8 and rc1.
+
+**Gate status at rc9:** source snapshot `49ccaf4d56e80008411b213e19e881b429166453` (`VERSION.txt`; the tested functional tree, not the evidence commit and not a deployment). `npm test` 197/197. `tools/hello-once.py` phone 390×844 and iPad 820×1180: instrumented burst (autoplay bypass) and real touch/click/Enter under default autoplay each start exactly one `m-hello`, then the map, with no further greeting; a reload plays it once. `tools/at-unlock-repro.py` still opens **p** and keeps it across Home and reload. Headless Chrome is not a physical iPad or Safari. rc8 gate remains below.
+
+## Fixed in rc9 (owner: Play queues the welcome on every tap)
+
+**Live at the report:** `1.0.0-rc8`, `VERSION.txt` `df77d462de33489a6fe4cad9f02dbfb8aebb200a`, remote `main` `82b4dd6`. The next candidate is `1.0.0-rc9`.
+
+**What happened.** `#play` called `audio.unlock` and then `audio.play('m-hello')` on every click. `play` appends to the one-at-a-time queue. Eight synchronous clicks on rc8 started three greetings within 9 seconds (at 1151, 4315, and 7475 ms). The map was already up and audio was still busy.
+
+**Now.** The first tap owns unlock, one welcome, and one transition (`js/hello-gate.js`). The button takes a pressed, non-hitting state immediately (`going`, `aria-busy`). Further taps do not queue another greeting. If unlock or playback throws, the button is tappable again. A reload is a new visit and plays the welcome once. Lesson audio is unchanged.
+
+**Checks.** `tests/hello-gate.test.mjs` (one owner under a delayed unlock, in-flight taps, failure then retry). `tools/hello-once.py` on phone 390×844 and iPad 820×1180: instrumented burst clicks with Chromium's autoplay bypass, and separately real Playwright click, touch, and Enter under default autoplay (no `no-user-gesture-required`). `tools/at-unlock-repro.py` still opens **p** and keeps it across Home and reload.
+
+**Not in this check.** Headless Chrome is not a physical iPad or Safari, and it does not prove the speaker or the silent switch. The gesture run uses Playwright's real click, touch, and Enter with Chromium's default autoplay policy. The burst-click run uses `no-user-gesture-required` and is a separate instrumented check.
+
+## Fixed in rc8 (owner: finishing "at" never opens the next step)
+
+**Symptom.** On the map, "at" is the words stop after m, s, a, t (the third pebble in the window the child sees: a, t, **at**). The next stop is the letter **p**. The owner could finish the "at" lesson over and over — all-done, back to the map — and Kit stayed on "at". This is not the rc7 walk-back: nothing was passed and then revoked. The stop never became passed.
+
+**What "finishing" was actually recording.** Only **at** and **am** are readable with m, s, a, t. The planner asked for 5 word trials and then kept 2. The first blends are modelled (S4): Kit says the word, the pick is unscored, and it takes **6** slow sweeps to leave the model. A stop passes when `blend:L1` is **secure** (5 counted reads, at least 80% of the last 10) — not when the session ends, and not the 2-day "mastered" bar (that one only schedules review). Counted means first try, unassisted, sweep at least 250 ms per sound, pick at least 600 ms after the blend, and Kit did not say the word first. So a careful child needed 3 sessions of 2 modelled words and then 3 more of 2 scored words: **six** all-done screens before p. A faster slide still opened the check, played the reward, and stored a fling, which never counts toward the 6 or the 5. Those completions can repeat forever and the map does not move.
+
+**Before (node replay of the rc7 planner and the word-screen log, perfect picks).** The lesson contained 2 words. Slow slides: still on "at" after 5 sessions, **p** only on session 6. Slides under 500 ms: still on "at" after 8 sessions, support stuck at S4, zero counted reads. The check still opened, so the lesson looked finished.
+
+**After.** While "at" is still modelled, the lesson repeats at/am for 6 trials (no new words, never the same word twice in a row). The next session has 5 trials with the word not said first. Two legitimate sessions open p. A slide under 250 ms per sound does not open the check; Kit says "Let's slide slowly, so we hear every sound." and the handle returns to the start. Thresholds are unchanged. The parent's Skip button is not involved.
+
+**Browser, fresh profile, iPad-sized Chrome** (`tools/at-unlock-repro.py`, real pointer slides, audio unlocked):
+- Boot on "at", 4 stars. Session 1 logged `am/at` ×3 as modelled, unscored, sweeps 1266–1500 ms. Home mid-session and reload: still "at", 4 stars.
+- Session 2 logged five scored reads (`amS`, `atS`, …). Level-up ("You did it!", chips am / at), then the map on **p** with 5 stars. Reload: still p, 5 stars. Home during the p lesson: still p, 5 stars.
+- A fast slide left the check closed and the slider at the start. A slow slide opened "Which word did you read?".
+- An older log of 10 finished modelled flings was kept and still showed "at" (phone-sized window). Nothing was erased.
+
+**This device's save.** rc8 does not reset site data and does not mark "at" passed from flings or from modelled reads. If the saved log already has 6 non-fling modelled sweeps and 5 counted reads, the existing rc7 marker replay would already have opened p — a device that is still on "at" does not have that evidence. Clean modelled sweeps already in the log still count, so the next careful session can be the scored one. Fast slides already stored stay unscored. The map moves on the next sessions that meet the same bar, including two sessions on the same day. "Mastered" (about 90% on two different days) is still only the review schedule, not the gate for p.
+
+**Quick correct taps (measured, then closed).** A slow slide (sweep 1300–1517 ms, over the 500 ms bar) opened the word cards **451 ms** after the blend. The guess guard still treats a pick under 600 ms as too fast to count, and the word still chimed and revealed. An immediate correct tap logged `latencyMs: 451, fast: true` and finished the word. A tap 120 ms after the cards (571 ms) did the same. A tap 250 ms after the cards (701 ms) counted. A child who taps the easy at/am card as soon as it appears could therefore finish every lesson with the reward and never move the map. That is a code path. It is not proof of what is stored on the owner's device.
+
+The cards now stay shut until the 600 ms window has passed (and at least the old pause, if that is longer), plus one frame. The first tap that can land is a real scoring chance. A pick that is still inside the window does not log, chime, or finish the word; the question stays up. Stored fast picks are not rewritten into counted reads. A slow slide with a logged correct pick under 600 ms still does not pass **at**.
+
+**Session end is not a passed stop.** "You did it!" (the existing level-up take) plays only when the map actually moves, including to **p**. When the stop is still ahead — the modelled first session, or a session whose counted reads are not enough — the screen says the existing line "Let's read it again.", shows the stop (**at**), and offers ▶ practice again and ⌂ take a break. Break says the existing "All done for today. Great reading!" and returns to the map on the same stop. No new recordings. Neither screen is a failure message, and nothing starts the next session by itself.
+
+**Not proved on a real iPad.** Headless Chrome does not run iPadOS gesture recognizers, Safari's `pointercancel`, palm rejection on the slider, or the child's actual sweep speed and audio. A slide that stays under 500 ms for "at" will keep asking them to slide slowly; only the device can show whether a given child clears that bar. rc5 (one sound at a time, chime-only letter feedback) and rc6 (tracing finger ownership) were not changed.
+
+`tools/check-scored-audio.py`
+10/10 (no target audio before a scored pick; S1/S2/S4 behave; a whole-word marker before the pick = help, unscored;
+re-reads logged separately) · `tools/play-session.py --audio` end-to-end sessions with real takes, **0 overlapping sounds** (rc5).
+
+> ✅ **Recorded voice (rc3).** `audio/takes/` holds **828 recorded takes** (xAI TTS, voice *Eve*, speed 1.0, the
+> owner's **upbeat** style) for every spoken clip in `audio/manifest.json`; the 2 SFX stay synthesized. All takes are
+> trimmed, loudness-normalized (−16 LUFS; voiceless fricatives s ss f ff th sh h at −19), mono 24 kHz 48 kbps MP3
+> (5.8 MB total). Phonemes were re-cut to spec §3.2 / literacy review §5.5 + R15 (no schwa, stops clipped, held
+> ≈ 1.1 s) — see *Audio QA* below. A grown-up must still **listen to the flagged phonemes** before a child playtest.
+>
+> ⚠️ **Pictures are placeholder emoji** (plus 3 drawn SVGs: mat, cat, hat). They must pass the v2 V6 rule (≥ 80 % of
+> 5+ children in the target region name each picture with its target word, unprompted) before release.
+
+## Content at rc3 (unchanged from rc2)
+38 sounds in 8 sets (m s a t · p i n · o d f · c k u · g e r h b l · ck ff ll ss s=/z/ · j v x y w z zz qu ·
+sh ch th th ng nk) · 56 map stops (38 sounds, 7 word levels L1–L7, 6 "new words" stops, 5 stories) · 254 words
+(72 pictured; ≥ 5 at every words stop from L3) · 14 star words · 30 picture-checked sentences · 5 decodable stories (from stop 19) · tracing paths
+for every grapheme.
+
+## Done vs spec §3
+
+| Spec | Requirement | Status |
+|---|---|---|
+| 3.1 | Playable touch-first loop: names, sounds, decoding with the Blend Slider + hidden-picture reward | ✅ |
+| 3.2 | Letter = name / dot = sound (switch after L1 mastery) | ✅ per-child switch + one-time demo; floating letters setting in grown-ups |
+| 3.2 | Clipped vs held sounds | ✅ rc3 recorded takes: stops are burst-only (0.1–0.2 s), continuants 0.45 s, held 1.0–1.15 s (tested); a few need a human ear (Audio QA) |
+| 3.2 | No failure states | ✅ no X / buzzer / timer; wrong pick → "Let's slide it again", replay, reshuffle |
+| 3.2 | Picture = reward, not hint | ✅ picture hidden until after the pick; v2 V1: the target word is never spoken before a scored pick |
+| 3.2 | Audio first | ✅ every prompt spoken; letters, dots, bars, buttons tappable (sentence words: only the current one) |
+| 3.3.1 | Stretchy letters first; b/d (and look-alikes) apart | ✅ m s a t first; b 3 sets after d; confusable pairs gapped (v/w gap 3) |
+| 3.3.1 | Uppercase first, lowercase within each set | ❌ lowercase-first (held decision: tile case) |
+| 3.3.2 | Floating Letters, Find the Letter | ✅ (float, find, soundTap, hunt) |
+| 3.3.2 | Match Up (upper ↔ lower drag) | ❌ not built |
+| 3.3.3 | Floating speed, ~80 pt tap radius, pause on tap, 3–6 letters | ✅ |
+| 3.4.1 | Dot with sound icon, different colour | ✅ dot = speaker (one sound), bar = speaker + word shape (a chunk) — Uiux rc1 |
+| 3.4.2 | Sound Tap, Sound Hunt | ✅ |
+| 3.4.2 | First Sound, Name or Sound? | ❌ not built (letter intro shows start-sound pictures instead) |
+| 3.4.3 | Blending unlocks after 4–6 sounds incl. a vowel | ✅ 4 secure incl. a vowel |
+| 3.5.1–2 | Word screen layout; sweep + 2–3 picture check; reveal + mascot says the word | ✅ printed word cards when a word has no good picture |
+| 3.5.3 | Dots + bars, lights, speed-aware, drift 60 pt, lift pauses, backward replays, unlimited replays | ✅ |
+| 3.5.3 | Onset + rime early, all phonemes later, each blend consonant its own dot | ✅ L2 onset + rime (held), L3+ all phonemes |
+| 3.5.3+ | Slider support fades with mastery (v2 V2 ladder S4 → S1) | ✅ per child, per pattern; `?support=`, `?ladder=0` |
+| 3.6 | Star words: shown, spoken, sentence, find among cards, tricky part marked, 1–2 per level, spaced review | ✅ 14 words (list held) |
+| 3.6 | Digraphs deferred past prototype | ➕ built (sh ch th th ng nk, ck ff ll ss zz qu) |
+| 3.7 | Level ladder L1–L5 | ✅ plus L6 digraph words, L7 -s suffix; levels only use secure sounds |
+| 3.7.1 | Mastery ≈ 90 % across 2 sessions on different days; spaced review 1/3/7/14(/30) days | ✅ |
+| 3.7.1 | Adaptive pacing (< 60 % two sessions → step back) | ✅ rc2: words → the last easier passed level with S3+ support and the hand demo; sounds → explore + 3-tile hunt, hint after 1 miss; 60–89 % = more practice on the same skill; no message to the child |
+| 3.7.1 | Error patterns tracked → extra practice | ✅ rc2 (`js/patterns.js`, 14 days): a letter mix-up (≥ 2) → a hunt with both letters on screen; a contrast position (≥ 3: short vowels / last / first sound) → a words round whose checks lead with that contrast; also shown to grown-ups |
+| 3.8.1 | Targets ≥ 64 pt, tap / drag only, landscape + portrait | ✅ automated at 6 viewports; ~100 ms audio latency not instrumented |
+| 3.8.2 | Calm mascot; 5–10 min sessions with "all done"; quiet rewards (stickers); speech recognition optional / off | ✅ (speech recognition not built — out of scope) |
+| 3.8.3 | Kid font (single-storey a/g), warm palette, subtle animation, reduced motion, shape-coded markers, captions, audio speed | ✅ Andika; captions on taps + speech bubbles |
+| 3.8.4 | Parent view: sounds, star words, words read, current level, trouble spots, settings, parental gate, no ads / links | ✅ press-and-hold gate; trouble spots + letter mode (rc1); words read alone vs with Kit |
+| 3.8.4 | Letter names known; recent sessions list | ⚠️ sessions/minutes this week only; letter names not shown separately |
+| 3.9 | Local saves only | ✅ no network, no accounts |
+
+## Known issues
+1. ~~**Placeholder audio**~~ — **resolved in rc3** (828 recorded takes). Remaining audio caveats: see *Audio QA*.
+2. **Placeholder emoji art** — 182 of 254 words have no picture (they get printed word cards). Sentence scenes show two
+   pictures side by side, so "in" vs "on" is not depicted; some stand-ins are weak (🟤 mud, 👑 the king, 🧺 lunch). New in
+   rc2 and to be checked in the naming test: plurals as two of a picture (two cats look small at 360 px because the
+   drawn cat has padding), 🤫 hush, 😢 sad, 😠 mad.
+3. Picture-naming validation (≥ 80 % rule) not run.
+4. Not built: Match Up, First Sound, Name or Sound?, uppercase letters, S1 "at a glance" per word (V2), story validator
+   rules on star-word ratio / recycling / new-GPC-per-page (V9 rules 2, 5, 6).
+5. Word pools: L1 (at, am) and L2 (6 CVC, 2 pictured) open with only 4–5 letters known; every later words stop has
+   ≥ 12 words and ≥ 5 pictured words (both tested).
+6. Digraph tracing is the two letters side by side.
+7. Pacing thresholds (step back < 60 % over two sessions, patterns ≥ 2 mix-ups / ≥ 3 contrast misses in 14 days) are
+   starting values to tune in the playtest; a step-back round's own responses still count toward mastery.
+8. Progress lives in this browser's storage only; clearing site data erases it (by design, spec §3.9).
+
+Fixed in rc2: adaptive step-back and error-pattern practice in the planner (was 4); S1 sentence words wait for the
+child's tap on a big arrow instead of auto-advancing after ~1 s (was 7); ≥ 5 pictured words at L6 and L7 (was 6);
+story re-reads — the session after a story offers one re-read, scored separately as `reread:<id>` (V9 rule 5);
+Uiux rc1 — distinct dot / bar icons, family letters in balanced centred rows (7 → 4 + 3), the tray steps aside when
+a family is done, family choices capped (`familyMax`, default 4, `?familyMax=`), grown-ups sound tiles never shrink.
+
+## Held user decisions (configurable, current defaults)
+| Decision | Default | Switch |
+|---|---|---|
+| Accent UK / US (z = "zee"; o in no/go; a in was; BATH / cot–caught vowels; tap/tin/bin/chip/vest/jam vocabulary) | US "zee"; accent-dependent words flagged ⚠️ in `js/content.js` | data |
+| L2 blend style (and L1 / L4 marker style) | L2 onset + rime (s + at), L1 and L4 all dots | L2: fixed in `markersFor` (`js/core.js`); `?l1=bar`, `?l4=blendBar` |
+| Letter taps per level | sound at L1, name + dot from L2 | `?mode=` (`tapMode`) |
+| Tile / print case (capitals, names like Kit) | lowercase | `?case=upper` |
+| Star-word list | I the is to no into a he go of she you we was | `js/content.js` |
+| Picture check at L1 | off (printed word cards instead) | `?checkL1=1`, `?cards=0` |
+| Voice (recorded actor vs synthesized; accents) | xAI TTS *Eve*, energetic and upbeat, British accent (rc3) | `audio/takes/`, `tools/gen-tts.mjs` |
+| "Let's slide it again" take | upbeat ("Ooh, so close! Let's slide it again!") — owner's pick, rc3 | `?voice=calm` |
+| Phase 1 / 2 overlap — floating letters say | sounds | grown-ups setting |
+| Speak the word before the check (old model) | off (scored reads) | `?speakBeforeCheck=1` |
+| Slider fade-out ladder | on | `?ladder=0`, `?support=1..4` |
+
+## Fixed in rc7 (owner: after "at" the map went back two steps — redo finished steps)
+**Root cause (a bug, not a design).** The map was recomputed on every visit from *live* mastery: a stop counted as
+passed only while its skill was "secure" right now (≥ 80 % of the last 10 scored answers, js/progress.js
+`stopPassed`), and stops pass strictly in order. Mixed review hunts keep asking for old sounds, so two slips on t
+(5 of 7 → 71 %) un-passed `sound:t`; that also un-passed every later stop, and the cat walked back to t (t + at =
+two steps; stars dropped too). A review lapse (two misses after mastery) did the same. Storage, exit paths, step ids
+and versions were not involved: the key `kitphonic.v1.responses` and the 56 stop ids are identical rc1–rc6, the log is
+written per answer on every exit path; the progress was derived wrongly from it.
+Repro (`tools/map-repro.py`, headless Chrome, fresh storage, one profile, 3 sessions a day, a child who slips 30 % of
+the time, reload after every session): live rc6 went t → m (stars 3 → 0) on day 2 and kept bouncing between m and a.
+rc7 (same seed, plus Home pressed mid-session every 3rd session): never backwards, reached p after "at".
+**Spec.** Combined Spec §3.7.1 / Prototype v1.1 §7.1: spaced repetition "mixed into new lessons"; adaptive pacing gives
+more practice or "steps back to an easier *activity* … quietly, with no 'you failed' message". Nothing asks for
+relocking a passed map stop; the walk-back contradicted the spec.
+**Fix.**
+1. High-water marks: the first time a stop is passed a marker `{ skill: 'stop:<id>', marker: true }` is saved in the same
+   log (`progressMarkers`, synced after every answer, on Home, at the end of a session and at boot). A marked stop stays
+   passed; stars never decrease. The store's size cap never trims markers.
+2. Migration: at boot the whole saved history is replayed once and every stop that was passed at *any* moment is
+   marked — progress from rc1–rc6 (including a rolled-back device) comes back to the furthest stop reached.
+3. A passed sound stays "taught" (words that use it stay open). If it slips, the next session opens with a short
+   review hunt under a small "🔁 Quick review" label, inside forward progress; the session still teaches the next stop.
+   Slipped words levels get a 2-word review the same way.
+4. Grown-ups view: a slipped sound shows **Review due**; never on the child's map. New "Skip this step…" (asks first,
+   erases nothing) moves Kit on one stop if a grown-up knows the child is past it.
+**Tests:** `tests/progress-monotonic.test.mjs` — owner repro (rc6 walks back, rc7 stays), pass + slip in one session,
+exit paths + reload, rc4 / rc5 / rc6 log shapes migrate to the furthest stop, markers earned in order on random logs,
+a 30-day simulation through the real planner (position and stars monotonic), review label + parent state, cap + skip.
+
+## Fixed in rc6 (owner: tracing is very hard to drag on iPad, Safari + Chrome; fine on the phone)
+**Root cause 1 — a second touch broke the stroke.** The trace surface handled *every* pointer: a resting palm / the
+other hand / a second finger fired `pointerdown` (→ `tracer.down()` far from the dot → the stroke went inactive) and its
+`pointerup` set `dragging = false`. On the bigger iPad screen a 4–5-year-old's palm rests on the glass far more often.
+Uiux's two-finger repro (`tools/trace-palm-tr2.cjs`, 820×1180 touch): one finger completes, *with palm* did not
+(rc5 `{"done":0}`); rc6 `{"done":1}`. Fix (`js/trace.js` `strokeOwner()`, `js/lesson-screen.js`): the finger that starts a
+stroke owns it — other pointers are ignored until it lifts; up / cancel only count for the owner (not `isPrimary`: when
+the palm lands first, *it* is the primary pointer). `pointercancel` keeps the ink; the child resumes where it paused.
+Moves read `getCoalescedEvents()` where available (smooth fast strokes). Already in place and unchanged:
+`touch-action:none` on html/body + `#tr-svg`, `preventDefault` on down, `setPointerCapture`, `user-select:none`;
+added `-webkit-touch-callout:none` on `#tr-svg`.
+**Root cause 2 — phone landscape: start dots under other controls.** In the short (landscape-phone) layout the top bar
+(its pebbles hidden) swallowed touches on tall letters' start dots (t, m, p, i…), and wide graphemes (ss, qu, ng…) ran
+under the Undo / stars column. Fix: the top bar passes touches through while tracing (its buttons still work) and the
+card is capped to clear the column. `tools/check-sizes.py` 300/300.
+**Tolerances were not the problem:** the lane (17), start dot (20) and look-ahead window are in letter units, so they
+scale with the letter on screen (a lane half-width of 11–17 % of the letter box height on phone and iPad alike); the coordinate mapping uses
+`getScreenCTM()`, which includes the stage's CSS scale and the viewBox letterboxing.
+**Evidence.** `tools/trace-touch.py` (CDP touch, Chromium emulation; iPad profiles with a Mac Safari UA, platform
+MacIntel, maxTouchPoints 5): every grapheme (37) traced with a palm landing mid-stroke, palm-first, and a touchcancel +
+resume; the start dot must be hit-testable and the page must never scroll or zoom. rc5: 17/37 graphemes failed on
+iPad Pro 11 portrait, iPad gen 7 landscape and iPhone 13 portrait. rc6: 37/37 on iPad Pro 11 + iPad gen 7 (portrait +
+landscape), iPhone 13 (portrait + landscape), Pixel 7. Unit tests: `tests/trace-touch.test.mjs`.
+**Not provable in emulation:** real iPadOS gesture recognizers (edge swipe-back, Scribble with a Pencil, the
+multitasking / Stage Manager gestures, palm rejection, Safari's own `pointercancel` timing). Please try on the iPad.
+
+## Fixed in rc5 (owner + Uiux: overlapping sounds)
+Owner: "on a correct tap play just the one b-bing chime… remove the 'yes' praise voice. One sound is enough." Uiux
+measured ~50 ms of overlap between the chime / praise and the next prompt.
+
+**Audit (rc4, before).** Letters Find It / Sound Hunt: chime + a spoken "Yes!" (hunt: the letter sound, then "Yes!")
+started together, and the next prompt was on a 900 / 1200 ms timer, so it ran into them. Word check: chime, then the
+reveal line at 650 ms (over the chime); no-picture cards chimed twice. Star word: chime, next round on a 1100 ms timer.
+Sentence: chime + bubble "Yes!" (no voice), karaoke at 500 ms. Story: chime + bubble "Yes! The end.". Family: sound →
+rime → word, chime, next prompt on a 1300 ms timer; "family done" praise and the chant overlapped. Trace: chime +
+letter sound at 300 ms (overlap). Map level-up: chime + "Level up!" at 500 ms (overlap). Every screen chained clips with
+its own `then()` chain that `audio.stop()` could not cancel, so rapid taps stacked voices.
+
+**Now.**
+1. **One voice at a time, app-wide** (`js/audio.js`). Every clip goes through one serial queue; the next sound waits
+   for the previous one to end + 250 ms (`gapMs` overrides it: 0 for slider phonemes, 300 after a trace chime).
+   `audio.say([...])` schedules a phrase gaplessly on the audio clock (edge silence skipped, 50 ms lookahead; the audio log records exact audio-clock start / end), so
+   "Find… t" is one phrase with no gap and no overlap. `audio.stop()` (a new tap) cuts Kit off and drops the queue.
+   Rapid taps can't stack (screens ignore taps while a round is resolving; any new tap stops the old audio first).
+2. **Correct tap = the chime only** (`js/feedback.js`: `CORRECT = ['sfx-chime']`). The green glow + a new **Kit nod**
+   carry the praise. Then ~400 ms of quiet (`CHIME_QUIET_MS`), then the next prompt as one phrase. Spec: §3.8.3
+   ("short warm chime"), Find It "celebration sound and sparkle"; no spoken "Yes!" and no echo of the letter after a
+   correct letter pick.
+3. **Kept, but sequenced (spec-required).** The §3.5.2 reveal word (word check: chime → word, one chime only); the v2 S3
+   word after the check; the v2 V1 sentence read after the picture pick; the §3.3 L1 trace sound (chime → 300 ms → sound);
+   the family "made word". Each now waits in the queue — none overlaps.
+4. **Spoken praise only at milestones, varied:** the end of a scored letters round and a map level-up use
+   `nextPraise()`, which never repeats the last line (sentence / story ends keep the chime + a "Yes!" bubble, no voice;
+   the sentence read-back is the reward). The variety is drawn from the existing takes (`m-yes`, `m-level-up`,
+   `m-you-read-it`); more lines would need new recordings.
+5. **Wrong tap unchanged:** Kit names what was tapped ("That's… b"), no sfx.
+6. **Sentence nudge in the gap (Uiux).** A locked-word tap between words (old word done, next not yet current) now
+   nudges the *upcoming* word instead of nothing / the finished one. While a sound plays, the bounce shows without the
+   tap sfx (one sound at a time).
+
+**Evidence.** `tests/audio-queue.test.mjs` (fake AudioContext, exact audio-clock intervals): chime → ≥ 240 ms → prompt,
+a gapless "Find… t" joint, stop + rapid replays never stacking, and a 60-step seeded random session with peak
+concurrency 1. Headless Chrome with the real takes: a letters round (wrong tap, correct tap, 3 rapid taps, correct tap)
+shows 0 overlaps > 5 ms; `tools/play-session.py --audio` sessions (letters, lesson + trace, family, star, word,
+level-up, sentence, story) report **0 overlapping sounds**, locally and against the live site.
+
+## Fixed in rc4 (Uiux rc3 audio review)
+- **Hello latency (medium):** Kit's hello, both SFX and the first lesson prompt (`EARLY_CLIPS` in `js/audio.js`,
+  ~45 KB) plus the manifest are fetched as raw bytes at page load (`<link rel=preload as=fetch>` + reused by
+  `createAudio`); the unlock tap only resumes Web Audio and decodes. The SFX are now 7 KB / 1.6 KB MP3 takes (the chime
+  WAV was 70 KB; WAVs stay as fallback). Start gets an instant pressed state, Kit waves and the bubble updates on
+  pointerdown. Headless Chrome, 1.6 Mbps / 150 ms RTT, cache off, tap → hello audio start: **rc3 ≈ 675 ms
+  (Uiux saw 735–756 ms) → rc4 ≈ 17 ms**, also when tapped the instant the app boots; boot time unchanged (≈ 3.4 s
+  locally, uncompressed manifest).
+- **Locked sentence words (low):** still inert, but a tap on one makes the current word bounce once with a soft tap
+  sound, pointing the child back (reduced motion: a still glow, no bounce). Counted as `run.nudges`.
+
+## Audio QA (rc3)
+Pipeline: `tools/audio_qa/process.py` (trim edges at −40 dB, phoneme cuts below, BS.1770 loudness −16 LUFS with
+peak ≤ −1.5 dBFS, mono MP3). Words / sentences / prompts were checked with a local ASR (faster-whisper small.en, then
+medium.en on every mismatch); phonemes by duration + voicing/frication profile.
+- **All 828 trimmed + normalized** (total speech 1102 s → 883 s; 18 MB → 5.8 MB).
+- **Phonemes re-cut without new credits:** stops t p d c k ck g b j (and glides w y) → burst only, schwa cut off;
+  s ss z zz s=/z/ r n ll short sounds cut from their steady held takes (the 2-letter takes said letter names, "es es");
+  held m n r l ll ss s=/z/ z v capped to 1.1 s (n-held was 4.5 s, r-held 3.2 s); zz-held = s=/z/-held (zz-held said
+  "zee zee"); h cut from the onset of *hat* (take said "aitch"); x = /ks/ cut from the coda of *box*; i = first vowel
+  only, i-held = that vowel stretched to ~1 s (take was broken); sh-held extended to 1.0 s.
+- **Regenerated (28 short xAI calls in total, no full re-run):** ch ("chuh" → frication only), qu ("kwuh" → /kw/),
+  th ("thhhhhhhhin" → /θ/ frication, extended), th=/ð/ short ("thuh" → onset) and held ("ðððððð"), f / ff and held
+  (pooled /f/ frication from "ffffffffff"), ng and held (steady nasal from "sinnnnnnnnng"), nk (that nasal + the /k/
+  burst). Words where the ASR heard the wrong vowel (pre-nasal short a): man, pan (+ pic-pan), and, ant, band, jam,
+  grin, us — regenerated as "Man!" etc. and now transcribe correctly.
+- **Needs a human ear before a child playtest:** snd-th_v / th_v-held (voiced th is the hardest; may sound like a
+  buzz or "z"), snd-ng / ng-held vs n (isolated nasal hum), snd-nk (spliced), snd-qu (short w glide), snd-w / snd-y
+  (glides cannot be fully vowel-free), snd-l / l-held / ll-held (ASR heard "Lola"), snd-r (ASR heard "uhh"), snd-h
+  (quiet breath), f / th (extended frication can sound hissy), and **word-tan** (still heard as "ten" after 2
+  retries — keep or re-record). ASR "mismatches" left on letter names, rimes (nonsense syllables) and homophones
+  (mat/Matt, to/2, past/passed) were judged ASR noise.
+- Loading: only the SFX + greeting gate the hello tap; letter sounds / names and Kit's lines (131 small clips)
+  warm in the background; each words round warms its words, reveals and pictures; anything else loads on first play.
+  Takes always win over browser speech (speech only if a take fails to load).
+
+## Release steps after rc4
+Listen to the flagged phonemes (above), replace emoji with drawn art and run the naming test, playtest
+8–12 children (spec §3.9) and tune thresholds (`RULES`, `SUPPORT_RULES`), then tag 1.0.0.
